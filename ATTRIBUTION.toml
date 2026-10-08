@@ -77,6 +77,17 @@ usage = "French UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
 sha256 = "41b46b0540aead4c11b4a30b72758f6fa90888a544c18108a8c55d3682e1da2a"
 
 [[asset]]
+path = "crates/ui-egui/src/i18n/te.tsv"
+title = "Telugu interface translation catalog"
+author = "PdfCraft contributors"
+source = "Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "translation"
+usage = "Telugu UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
+sha256 = "65b0198fea3ed3fc4eba91a041bb7e7a20e41a9f5df0c15be4aff4027fd18936"
+
+[[asset]]
 path = "crates/ui-egui/src/i18n/ja.tsv"
 title = "Japanese interface translation catalog"
 author = "PdfCraft contributors"
