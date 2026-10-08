@@ -17,7 +17,7 @@
 //!
 //! # Looking strings up
 //! - [`tl!`](crate::tl) / [`t`]: a plain string in the current language. [`tr`]: in a given one.
-//! - [`tr_ctx`]: when one English word needs different translations.
+//! - [`tr_ctx`] (`tl_ctx!` in UI code): when one English word needs different translations.
 //! - [`tr_id`]: a command-id keyed string with the English label as fallback (menu items), so a
 //!   translation survives rewording of the English text and can differ per command.
 //! - [`trn`]: plural-aware (`{n}` is filled in). [`fmt`]: fill `{name}` placeholders after [`tr`];
@@ -754,6 +754,17 @@ mod tests {
         assert_eq!(command_label("Undo Untranslated custom action"), format!("{} Untranslated custom action", tr(es, "Undo")));
         set_current(Lang::EN);
         assert_eq!(command_label("Undo Untranslated custom action"), "Undo Untranslated custom action");
+    }
+
+    /// A label that reads differently by use has its own contextual entry where a language needs
+    /// one; a language without it falls back to the plain translation.
+    #[test]
+    fn contextual_labels_fall_back_to_the_plain_translation() {
+        let te = Lang::from_code("te").expect("te registered");
+        assert_eq!(tr_ctx(te, "signature pad", "Type"), "టైప్ చేయి");
+        assert_eq!(tr(te, "Type"), "రకం");
+        let es = Lang::from_code("es").expect("es registered");
+        assert_eq!(tr_ctx(es, "signature pad", "Type"), tr(es, "Type"));
     }
 
     /// Telugu translates every registered command and every All tools group, section and item.

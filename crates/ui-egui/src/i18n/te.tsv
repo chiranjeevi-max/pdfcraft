@@ -15,6 +15,7 @@
 	Menu	మెనూ
 	File	ఫైల్
 	Edit	సవరణ
+comment menu	Edit	సవరించు
 	Pages	పేజీలు
 	View	వీక్షణ
 	Help	సహాయం
@@ -1213,6 +1214,7 @@
 	Sort by	క్రమపరిచే విధానం
 	Author	రచయిత
 	Type	రకం
+signature pad	Type	టైప్ చేయి
 	Colour	రంగు
 	Show all comments	అన్ని వ్యాఖ్యలను చూపించు
 	Create PDF comment summary…	PDF వ్యాఖ్యల సారాంశాన్ని సృష్టించు…
@@ -1334,6 +1336,7 @@
 	None (prefix only)	ఏదీ లేదు (ప్రిఫిక్స్ మాత్రమే)
 	Prefix	ప్రిఫిక్స్
 	Start	ప్రారంభం
+action wizard	Start	ప్రారంభించు
 	Labels: {preview}. Later pages keep their labels.	లేబుల్‌లు: {preview}. తర్వాతి పేజీలు వాటి లేబుల్‌లను అలాగే ఉంచుకుంటాయి.
 	Even and Odd Pages	సరి, బేసి పేజీలు
 	Even Pages Only	సరి పేజీలు మాత్రమే
