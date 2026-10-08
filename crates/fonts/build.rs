@@ -43,7 +43,8 @@ fn craft_fonts(dir: &std::path::Path) -> Result<String, String> {
         let arabic = scripts.split(',').any(|s| s.trim() == "Arab");
         // Telugu faces too, for the Telugu interface.
         let telugu = scripts.split(',').any(|s| s.trim() == "Telu");
-        if wasm && !(*family == "BIZ UDPGothic" && *style == "Regular") && !arabic && !telugu {
+        let web_face = (*family == "BIZ UDPGothic" && *style == "Regular") || arabic || telugu;
+        if wasm && !web_face {
             continue;
         }
         let path = dir.join(file).canonicalize().map_err(|e| format!("{file}: {e}"))?;
