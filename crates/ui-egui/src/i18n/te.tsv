@@ -2001,3 +2001,5 @@ action wizard	Start	ప్రారంభించు
 	Its security settings don't allow copying pages	దీని భద్రతా సెట్టింగ్‌లు పేజీలను కాపీ చేయడాన్ని అనుమతించవు
 	Can't be read: {e}	చదవడం సాధ్యం కాదు: {e}
 	Includes unsaved changes	సేవ్ చేయని మార్పులు ఉన్నాయి
+	This web address mixes letters from different alphabets, a common way to imitate another site's name.	ఈ వెబ్ చిరునామాలో వేర్వేరు లిపుల అక్షరాలు కలిసి ఉన్నాయి. వేరే సైట్ పేరును అనుకరించడానికి ఇది తరచూ వాడే పద్ధతి.
+	This web address uses letters from another alphabet, which can look like familiar ones.	ఈ వెబ్ చిరునామాలో వేరే లిపి అక్షరాలు ఉన్నాయి. అవి మీకు తెలిసిన అక్షరాల్లాగే కనిపించవచ్చు.

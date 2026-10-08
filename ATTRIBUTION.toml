@@ -85,7 +85,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Telugu UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "99673be58945610187cb3f2c2fdacc7d88e1972d6df2911c03faa42f2bbeaa78"
+sha256 = "a3342c645e71903bed34f0333b979db9f2659bda211de1e03c736fa40b0b4edb"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/ja.tsv"
