@@ -102,9 +102,10 @@ impl<'a> Face<'a> {
     }
 }
 
-/// The ISO 15924 script a craft-fonts face has to be meant for to draw `words`, or `None` for the
-/// Latin, Cyrillic and Greek that Inter draws. Han without kana is `Hani`, which no face is meant
-/// for: a Japanese face would draw Chinese in Japanese letterforms, so Chinese stays English.
+/// The ISO 15924 script of `words`, which picks the face that draws them ([`face_for`]), or `None`
+/// for the Latin, Cyrillic and Greek that Inter draws. Han without kana is `Hani`: Chinese, which
+/// stays English, as a Japanese face would draw it in Japanese letterforms and the Chinese faces
+/// are for the interface alone.
 fn script_of(words: &[&str]) -> Option<&'static str> {
     let any = |is: fn(char) -> bool| words.iter().flat_map(|w| w.chars()).any(is);
     if any(
@@ -126,18 +127,23 @@ fn script_of(words: &[&str]) -> Option<&'static str> {
     }
 }
 
-/// A face that draws all of `words`: Inter when `script` is `None`, else the first craft-fonts
-/// face meant for `script`. Faces are picked by the script they are meant for, so one the asset
-/// policy keeps out of documents (meant for `Hans`) is never picked.
+/// A face that draws all of `words`: Inter when `script` is `None`, else a craft-fonts face that
+/// PdfCraft writes `script` into documents with. A face's scripts alone don't decide it: the
+/// Chinese one is for the interface alone (ATTRIBUTION.toml), whatever scripts it is meant for.
 fn face_for(script: Option<&str>, words: &[&str]) -> Option<&'static [u8]> {
     let draws = |bytes: &[u8]| words.iter().all(|w| embedding::covers(bytes, w));
-    let face = match script {
+    let faces = match script {
         None => return draws(INTER_REGULAR).then_some(INTER_REGULAR),
         // Sans first, like the other captions.
-        Some("Jpan") => pdfcraft_fonts::document_japanese_fonts_for_style(false, false).into_iter().find(|f| draws(f.bytes)),
-        Some(script) => pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.covers(script) && draws(f.bytes)),
+        Some("Jpan") => pdfcraft_fonts::document_japanese_fonts_for_style(false, false),
+        Some("Arab") => pdfcraft_fonts::document_arabic_font().into_iter().collect(),
+        Some("Thai") => pdfcraft_fonts::document_thai_font().into_iter().collect(),
+        Some("Deva") => pdfcraft_fonts::document_devanagari_font().into_iter().collect(),
+        // Telugu has no document face yet; its interface faces stand in.
+        Some("Telu") => pdfcraft_fonts::ui_telugu_fonts(),
+        Some(_) => Vec::new(),
     };
-    face.map(|f| f.bytes)
+    faces.into_iter().map(|f| f.bytes).find(|b| draws(b))
 }
 
 /// Each verdict's colour, shared by the regenerated icons and the viewer's badge and panel, so
@@ -1504,7 +1510,8 @@ mod tests {
         // the script and drawn as outlines when the build has one, and drawn in English when it
         // does not.
         // Chinese is always English: no face is picked for it, since the Japanese ones would draw
-        // Japanese letterforms and the Chinese one is kept out of documents.
+        // Japanese letterforms and the Chinese one is for the interface alone, even where
+        // craft-fonts says it is meant for Hani.
         let cases = [
             ("Arab", ["التوقيع صالح", "الصلاحية غير معروفة", "التوقيع غير صالح"]),
             ("Jpan", ["署名は有効", "有効性は不明", "署名は無効"]),
@@ -1519,6 +1526,7 @@ mod tests {
             // Decided apart from `face_for`: whether craft-fonts brings a face meant for the script.
             let has_face = match script {
                 "Jpan" => !pdfcraft_fonts::document_japanese_fonts_for_style(false, false).is_empty(),
+                "Hani" => false,
                 script => pdfcraft_fonts::CRAFT_FONTS.iter().any(|f| f.covers(script)),
             };
             if has_face {
@@ -1542,8 +1550,8 @@ mod tests {
 
     #[test]
     fn captions_no_font_draws_are_all_drawn_in_english() {
-        // One caption no face can draw sends all three to English, so two signatures in
-        // different states never read in two languages.
+        // One caption no face is picked for (Chinese) sends all three to English, so two
+        // signatures in different states never read in two languages.
         let mixed = captions("签名有效", "Действительность неизвестна", "Подпись недействительна");
         for (status, english) in [(Status::Valid, "Signature valid"), (Status::Unknown, "Validity unknown")] {
             let (shown, _, font, _, _) = caption_of(&mixed, status);
