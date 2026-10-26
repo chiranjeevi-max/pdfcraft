@@ -248,14 +248,18 @@ fn form_with_text_fields(text: usize) -> Document {
     Document::open(Arc::new(pdf.build())).unwrap()
 }
 
+/// The test digital ID, and options that sign a new field.
+fn signer() -> (DigitalId, SignOptions) {
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/ec-p256.p12")).unwrap();
+    (crate::pkcs12::open(&p12, "test").unwrap(), SignOptions { date: "D:20261027120000Z".into(), ..SignOptions::default() })
+}
+
 /// Signing adds a field only where the walk reads it back, the whole form with it: past a cap the
 /// new signature would be listed as unread fields, and its name could repeat an unread field's. A
 /// field the walk already reads is still signed in a form it can't read whole.
 #[test]
 fn a_new_signature_field_is_added_only_where_the_walk_reads_it_back() {
-    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/ec-p256.p12")).unwrap();
-    let id = crate::pkcs12::open(&p12, "test").unwrap();
-    let opts = SignOptions { date: "D:20261027120000Z".into(), ..SignOptions::default() };
+    let (id, opts) = signer();
     // With `s` before them, the new field is the last one the walk takes.
     let signed = sign(&form_with_text_fields(MAX_FIELDS - 2), &id, &opts).unwrap();
     let (fields, whole) = walk_sig_fields(&Document::open(Arc::new(signed)).unwrap());
@@ -264,6 +268,20 @@ fn a_new_signature_field_is_added_only_where_the_walk_reads_it_back() {
     assert!(matches!(&refused, Err(SignError::Pdf(m)) if m.contains("too many fields")), "{:?}", refused.as_ref().err());
     let existing = SignOptions { field: Some("s".into()), ..opts };
     assert!(sign(&form_with_text_fields(MAX_FIELDS), &id, &existing).is_ok(), "a field the walk reads is signed as before");
+}
+
+/// The walk lists no field without a name, so a new signature field named only with spaces or NULs
+/// would be a signature nothing shows: signing refuses it.
+#[test]
+fn a_new_signature_field_with_a_blank_name_is_refused() {
+    let (id, opts) = signer();
+    for name in ["", " ", "\0"] {
+        let blank = SignOptions { new_field_name: Some(name.into()), ..opts.clone() };
+        let refused = sign(&form_with_text_fields(0), &id, &blank);
+        assert!(matches!(&refused, Err(SignError::Pdf(m)) if m.contains("blank")), "{name:?}: {:?}", refused.as_ref().err());
+    }
+    let named = SignOptions { new_field_name: Some(" Approval ".into()), ..opts };
+    assert!(sign(&form_with_text_fields(0), &id, &named).is_ok(), "a name with spaces around it is read");
 }
 
 /// Every kid's name repeats its parent's, so the names the walk keeps are capped all together: a
