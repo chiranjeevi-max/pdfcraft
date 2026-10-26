@@ -113,6 +113,10 @@ fn script_of(words: &[&str]) -> Option<&'static str> {
         Some("Arab")
     } else if any(|c| matches!(c, '\u{0C00}'..='\u{0C7F}')) {
         Some("Telu")
+    } else if any(|c| matches!(c, '\u{0E00}'..='\u{0E7F}')) {
+        Some("Thai")
+    } else if any(|c| matches!(c, '\u{0900}'..='\u{097F}' | '\u{A8E0}'..='\u{A8FF}')) {
+        Some("Deva")
     } else if any(|c| matches!(c, '\u{3040}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}')) {
         Some("Jpan")
     } else if any(|c| matches!(c, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}')) {
@@ -1496,14 +1500,17 @@ mod tests {
 
     #[test]
     fn captions_in_other_scripts_use_a_face_made_for_them_or_english() {
-        // Arabic, Japanese and Telugu are shaped in a craft-fonts face meant for the script and
-        // drawn as outlines when the build has one, and drawn in English when it does not.
+        // Arabic, Japanese, Telugu, Thai and Devanagari are shaped in a craft-fonts face meant for
+        // the script and drawn as outlines when the build has one, and drawn in English when it
+        // does not.
         // Chinese is always English: no face is picked for it, since the Japanese ones would draw
         // Japanese letterforms and the Chinese one is kept out of documents.
         let cases = [
             ("Arab", ["التوقيع صالح", "الصلاحية غير معروفة", "التوقيع غير صالح"]),
             ("Jpan", ["署名は有効", "有効性は不明", "署名は無効"]),
             ("Telu", ["సంతకం చెల్లుబాటు అవుతుంది", "చెల్లుబాటు తెలియదు", "సంతకం చెల్లదు"]),
+            ("Thai", ["ลายเซ็นถูกต้อง", "ไม่ทราบความถูกต้อง", "ลายเซ็นไม่ถูกต้อง"]),
+            ("Deva", ["हस्ताक्षर मान्य", "वैधता अज्ञात", "हस्ताक्षर अमान्य"]),
             ("Hani", ["签名有效", "有效性未知", "签名无效"]),
         ];
         for (script, [valid, unknown, invalid]) in cases {
