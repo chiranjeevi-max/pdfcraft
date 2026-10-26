@@ -275,3 +275,24 @@ fn a_whole_walk_adds_no_row_for_unread_fields() {
     let rows: Vec<_> = list(&doc, &pdf, &TrustStore::default()).into_iter().map(|r| (r.field.len(), r.signed)).collect();
     assert_eq!(rows, [(MAX_FIELD_NAME_BYTES, false)]);
 }
+
+/// One rule decides whether a signature widget is on its page, for the badge and for the redrawn
+/// layers alike: a box wider and taller than half a point, in either corner order, of finite
+/// numbers, on a widget that isn't Hidden or NoView.
+#[test]
+fn a_widget_shows_with_a_box_over_half_a_point_unless_hidden_or_noview() {
+    let doc = form("", &[]);
+    let widget = |s: &str| pdfcraft_cos::Lexer::new(s.as_bytes(), 0).object().unwrap().as_dict().unwrap().clone();
+    let shown = |s: &str| widget_shown(&doc, &widget(s));
+    assert!(shown("<< /Rect [100 100 300 220] >>"));
+    assert!(shown("<< /Rect [300 220 100 100] >>"), "corners in either order");
+    assert!(shown("<< /Rect [0 0 0.6 0.6] /F 4 >>"), "Print alone hides nothing");
+    assert!(!shown("<< /Rect [100 100 300 220] /F 2 >>"), "Hidden");
+    assert!(!shown("<< /Rect [100 100 300 220] /F 36 >>"), "NoView");
+    assert!(!shown("<< /Rect [0 0 0.5 10] >>"), "half a point wide is no box");
+    assert!(!shown("<< /Rect [0 0 10] >>"));
+    assert!(!shown("<< /F 4 >>"));
+    let mut endless = widget("<< >>");
+    endless.set(b"Rect".to_vec(), Object::Array(vec![Object::Int(0), Object::Int(0), Object::Real(f64::INFINITY), Object::Int(10)]));
+    assert!(!widget_shown(&doc, &endless), "a box needs finite corners");
+}

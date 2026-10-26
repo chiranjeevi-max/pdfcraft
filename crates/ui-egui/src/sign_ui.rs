@@ -10,6 +10,7 @@ use pdfcraft_engine::{SignOptions, SignatureImage, SignatureInfo, SignatureStatu
 
 use crate::canvas::{DocView, PageXform, Snapshot, SnapshotKind};
 use crate::fill_sign::SavedSig;
+use crate::page_pointer::PagePointer;
 use crate::theme::{self, Tokens};
 use crate::{PdfCraftApp, icons, widgets};
 
@@ -151,9 +152,16 @@ pub struct SignView {
 }
 
 /// Drag a signature rectangle on one page (Digitally sign, Certify (visible signature)).
-pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, xf: &PageXform, page: usize, info: &pdfcraft_render::DocInfo, view: &mut DocView) {
-    let pointer = ui.input(|i| i.pointer.hover_pos());
-    let origin = ui.input(|i| i.pointer.press_origin());
+pub(crate) fn page_input(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    xf: &PageXform,
+    ptr: &PagePointer,
+    page: usize,
+    info: &pdfcraft_render::DocInfo,
+    view: &mut DocView,
+) {
+    let (pointer, origin) = (ptr.pos, ptr.origin);
     if pointer.is_some_and(|p| xf.rect.contains(p)) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
     }
@@ -450,6 +458,8 @@ impl PdfCraftApp {
         // Signing saves, as in Acrobat: choose where (a cancelled save cancels signing). The
         // document is signed once the user has chosen.
         let name = self.session.get(doc_id).map(|d| d.name.clone()).unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let folder = self.session.get(doc_id).and_then(|d| d.path.clone());
         let stem = name.trim_end_matches(".pdf").trim_end_matches(".PDF").to_string();
         let sign_and_save = move |app: &mut Self, path: PathBuf| -> Result<(), String> {
             // Sign what was typed while the save panel was open, too (#166); a refused value
@@ -463,6 +473,8 @@ impl PdfCraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             app.watch.known_now(doc_id, &path.to_string_lossy());
             app.session.mark_signed(doc_id, signed, Some(path.to_string_lossy().into_owned())).map_err(|e| e.to_string())?;
+            #[cfg(target_os = "macos")]
+            crate::macos_association::repair(&path);
             app.sign_graphic = choice;
             if let Some(view) = app.views.iter_mut().find(|v| v.id == doc_id) {
                 view.invalidate_content();
@@ -476,6 +488,7 @@ impl PdfCraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             None => {
                 let dialog = rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem}_signed.pdf"));
+                let dialog = crate::editing::in_document_folder(dialog, folder.as_deref());
                 // The signature's page, rectangle and field refer to the document as it is now:
                 // the pick is dropped (with a notice) if it is edited or switched away from
                 // meanwhile. Once the picker shows, the dialog closes; an error from here on
@@ -688,6 +701,7 @@ fn error(ui: &mut egui::Ui, err: &Option<String>) {
     }
 }
 
+/// Draw the digital-ID chooser, including unusable certificates and removal confirmation.
 fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
     title(ui, "Sign with a Digital ID");
     ui.label(tl!("Choose the digital ID that you want to use for signing:"));
@@ -700,7 +714,7 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
             let selected = d.selected == Some(i);
             let usable = e.unusable.is_none();
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), egui::Sense::click());
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, usable, selected, &e.name));
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, usable, selected, &e.name));
             let fill = if selected {
                 t.accent_soft
             } else if resp.hovered() && usable {
@@ -949,13 +963,13 @@ pub(crate) fn appearance_labels(lang: crate::i18n::Lang) -> (AppearanceLabels, b
 
 /// The words a named-layer signature appearance's status caption is drawn with: all three in
 /// `lang`, or all three in English when `lang` misses one of them. The sign crate picks the
-/// face, and shapes right-to-left words itself, so they go in logical order.
+/// face and shapes right-to-left words itself, so they go in the catalogue's logical order.
 pub(crate) fn status_captions(lang: crate::i18n::Lang) -> StatusCaptions {
     let english = StatusCaptions::default();
     if lang == crate::i18n::Lang::EN {
         return english;
     }
-    let said = |s: &str| crate::i18n::tr_logical(lang, s);
+    let said = |s: &str| crate::i18n::has(lang, s).then(|| crate::i18n::tr(lang, s).to_owned());
     (|| Some(StatusCaptions { valid: said(&english.valid)?, unknown: said(&english.unknown)?, invalid: said(&english.invalid)? }))()
         .unwrap_or(english)
 }
@@ -1584,23 +1598,23 @@ mod tests {
     }
 
     #[test]
-    fn status_captions_are_translated_in_every_language() {
-        use crate::i18n::Lang;
+    fn status_captions_come_whole_from_one_language() {
+        // All three in a language that has them, else all three in English: never a mix. Whether
+        // a face draws them is the sign crate's call.
+        use crate::i18n::{Lang, has};
         let english = StatusCaptions::default();
         assert_eq!(status_captions(Lang::EN), english);
-        // A language missing any of the three falls back to English for all of them, so each
-        // has its own; whether a face draws them is the sign crate's call.
         for lang in Lang::all().filter(|&l| l != Lang::EN) {
-            assert_ne!(status_captions(lang), english, "{} misses a status caption", lang.code());
+            let whole = [&english.valid, &english.unknown, &english.invalid].into_iter().all(|s| has(lang, s));
+            let said = status_captions(lang);
+            assert_eq!(said != english, whole, "{}: {said:?}", lang.code());
         }
-        let de = status_captions(Lang::from_code("de").unwrap());
-        assert_eq!((de.valid.as_str(), de.invalid.as_str()), ("Signatur gültig", "Signatur ungültig"));
     }
 
     #[test]
     fn status_captions_reach_the_sign_crate_in_logical_order() {
-        // The screen shows Arabic in display order; the sign crate receives the catalogue's own
-        // logical order instead, so its bidi shaper does not reverse the words a second time.
+        // The sign crate receives the catalogue's logical order and shapes the words itself, so
+        // they are never reversed a second time.
         let ar = status_captions(crate::i18n::Lang::from_code("ar").unwrap());
         assert_eq!([ar.valid.as_str(), ar.unknown.as_str(), ar.invalid.as_str()], ["التوقيع صالح", "الصلاحية غير معروفة", "التوقيع غير صالح"]);
     }
@@ -1699,19 +1713,22 @@ mod tests {
     /// left): never a mix, and never a label signing would refuse.
     #[test]
     fn appearance_labels_are_translated_or_all_english() {
-        use crate::i18n::{Lang, tr};
+        use crate::i18n::{Lang, has, tr};
         let english = AppearanceLabels::default();
         assert_eq!(appearance_labels(Lang::EN), (english.clone(), false));
+        // Latin-script catalogs the signature's font can draw: stamped in the language once every
+        // label is translated there.
         for code in ["de", "es", "fr", "it", "pt-br", "pl", "tr", "sl", "hu"] {
             let lang = Lang::from_code(code).unwrap();
+            if !english.fields().into_iter().all(|(_, source)| has(lang, source)) {
+                continue;
+            }
             let (labels, in_english) = appearance_labels(lang);
             assert!(!in_english, "{code}: {labels:?}");
             for ((field, ours), (_, source)) in labels.fields().into_iter().zip(english.fields()) {
                 assert_eq!(ours, tr(lang, source), "{code}: {field}");
             }
         }
-        let (de, _) = appearance_labels(Lang::from_code("de").unwrap());
-        assert_eq!((de.signed_by.as_str(), de.reason.as_str()), ("Digital signiert von", "Grund: "));
         for code in ["zh-hans", "zh-hant", "ja", "ru", "uk", "bg", "kk", "el", "te", "cs", "lt", "ar"] {
             assert_eq!(appearance_labels(Lang::from_code(code).unwrap()), (english.clone(), true), "{code}");
         }

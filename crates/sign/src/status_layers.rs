@@ -195,7 +195,7 @@ pub fn show_status_layers(doc: &mut Document, signatures: &mut [SignatureInfo], 
         let Some(widgets) = fields.widgets(&sig.field) else { continue };
         let mut shown = false;
         for (r, widget) in widgets {
-            if !shows(doc, widget) {
+            if !crate::pdf::widget_shown(doc, widget) {
                 continue;
             }
             let Some(r) = r.filter(|r| !fields.shared(*r)) else { continue };
@@ -223,7 +223,7 @@ pub fn has_status_layers(doc: &Document, signatures: &[SignatureInfo]) -> bool {
         fields.widgets(&sig.field).is_some_and(|widgets| {
             widgets.iter().any(|(r, w)| {
                 r.is_some_and(|r| !fields.shared(r))
-                    && shows(doc, w)
+                    && crate::pdf::widget_shown(doc, w)
                     && appearance(doc, w).is_some_and(|n| checked.insert(n.num) && recognise(doc, n, &mut drawing).is_some())
             })
         })
@@ -321,16 +321,6 @@ impl Fields {
     fn shared(&self, widget: ObjRef) -> bool {
         self.claims.get(&widget.num).is_some_and(|&n| n > 1)
     }
-}
-
-/// Whether a widget is on screen: not hidden or no-view (annotation flags 2 and 6), with a
-/// `/Rect` of four finite numbers enclosing an area.
-fn shows(doc: &Document, widget: &Dict) -> bool {
-    let flags = widget.get(b"F").and_then(|f| doc.resolve(f).as_int()).unwrap_or(0);
-    if flags & (2 | 32) != 0 {
-        return false;
-    }
-    four_numbers(doc, widget.get(b"Rect")).is_some()
 }
 
 /// Four finite numbers, ordered (`[x0 y0 x1 y1]` with x0 < x1 and y0 < y1), enclosing a
