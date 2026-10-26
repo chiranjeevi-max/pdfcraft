@@ -109,6 +109,28 @@ fn names_up_to_the_cap_are_read_and_longer_ones_are_not() {
     assert!(!whole, "fields passed over for their names");
 }
 
+/// Passed over for its name, a leaf of another type leaves the walk whole: it is no signature
+/// field and has no kids to hold one, so an unsigned form with a text field named past the cap
+/// stays unsigned. A field's own type comes before the one it takes from above.
+#[test]
+fn a_leaf_of_another_type_named_past_the_cap_leaves_the_walk_whole() {
+    let long = "a".repeat(MAX_FIELD_NAME_BYTES + 1);
+    let stored = format!("x{}", " ".repeat(2 * MAX_FIELD_NAME_BYTES + 2));
+    for (what, field, whole) in [
+        ("a text field", format!("<< /T ({long}) /FT /Tx >>"), true),
+        ("a text field stored too long to read", format!("<< /T ({stored}) /FT /Tx >>"), true),
+        ("a field of no type", format!("<< /T ({long}) >>"), true),
+        ("a text field under a signature field", format!("<< /T (p) /FT /Sig /Kids [<< /T ({long}) /FT /Tx >>] >>"), true),
+        ("a signature field", format!("<< /T ({long}) /FT /Sig >>"), false),
+        ("a kid taking the signature type", format!("<< /T (p) /FT /Sig /Kids [<< /T ({long}) >>] >>"), false),
+        ("a text field with a signature kid", format!("<< /T ({long}) /FT /Tx /Kids [<< /T (k) /FT /Sig >>] >>"), false),
+    ] {
+        assert_eq!(walk_sig_fields(&form("3 0 R", &[field])).1, whole, "{what}");
+    }
+    let doc = form("3 0 R", &[format!("<< /T ({long}) /FT /Tx >>")]);
+    assert!(list(&doc, doc.bytes(), &TrustStore::default()).is_empty(), "no row for a field passed over");
+}
+
 /// No more than `MAX_FIELDS` fields are looked at: the first in `/Fields`, then kids as they are
 /// reached, out of whatever room is left.
 #[test]

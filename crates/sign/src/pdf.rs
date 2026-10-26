@@ -531,7 +531,8 @@ const MAX_FIELDS: usize = 20_000;
 /// already taken are still listed, without the widgets past it.
 const MAX_ENTRIES: usize = 100_000;
 /// Longest fully qualified field name read, in bytes. Real names are far shorter; a field named
-/// longer is passed over, and counts as unread as fields past [`MAX_FIELDS`] do.
+/// longer is passed over, and counts as unread as fields past [`MAX_FIELDS`] do unless it is a leaf
+/// of another type.
 pub(crate) const MAX_FIELD_NAME_BYTES: usize = 4096;
 /// Most bytes of names the walk keeps, all the fields it lists together. A kid's name repeats its
 /// parent's, so under the caps above one long name over many kids would still come to 80 MB.
@@ -544,8 +545,8 @@ fn sig_fields(doc: &Document) -> Vec<Field> {
 }
 
 /// [`sig_fields`], and whether the walk read the whole form. It did not when a cap stopped it or a
-/// field was passed over for its name; a field it did not reach may then claim one of the widgets
-/// listed.
+/// field that is or holds a signature field was passed over for its name; a field it did not reach
+/// may then claim one of the widgets listed.
 ///
 /// Kids share their parent's name instead of each copying it. A widget is listed under every field
 /// that lists it, so two claims on one widget stay visible, and it is copied once. A field taken
@@ -589,6 +590,10 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
             continue;
         }
         let Some(d) = doc.resolve(&o).as_dict().cloned() else { continue };
+        let sig = d.name(b"FT").map_or(inherited_sig, |ft| ft == b"Sig");
+        // Passed over for its name, a leaf of another type hides no signature: it is none, and
+        // has no kids to hold one.
+        let hides = sig || d.contains(b"Kids");
         // Even as UTF-16, a name within the cap takes at most twice its length plus a two-byte
         // mark. A /T stored in more is passed over undecoded, whatever it would trim to: a long
         // string named by many fields would otherwise be decoded once for each.
@@ -598,7 +603,7 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
             _ => 0,
         });
         if stored > 2 * MAX_FIELD_NAME_BYTES + 2 {
-            whole = false;
+            whole &= !hides;
             continue;
         }
         let part = text(doc, &d, b"T");
@@ -608,10 +613,9 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
             (None, _) => prefix,
         };
         if name.len() > MAX_FIELD_NAME_BYTES {
-            whole = false;
+            whole &= !hides;
             continue;
         }
-        let sig = d.name(b"FT").map_or(inherited_sig, |ft| ft == b"Sig");
         let listed = sig && part.is_some();
         let mut ws: Vec<(Option<ObjRef>, Rc<Dict>)> = Vec::new();
         if listed && d.name(b"Subtype") == Some(b"Widget") {
