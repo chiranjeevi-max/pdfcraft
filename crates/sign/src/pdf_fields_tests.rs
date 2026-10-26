@@ -237,6 +237,35 @@ fn a_widget_written_into_a_shared_kids_array_is_copied_once() {
     assert!(listed.iter().all(|f| f.widgets.len() == 1 && Rc::ptr_eq(&f.widgets[0].1, first)), "an in-place widget is copied once");
 }
 
+/// A one-page form listing the signature field `s`, then `text` text fields.
+fn form_with_text_fields(text: usize) -> Document {
+    let fields: String = (0..text).map(|i| format!("<< /T (t{i}) /FT /Tx >>")).collect();
+    let pdf = Pdf::new()
+        .obj(format!("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R {fields}] >> >>"))
+        .obj("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+        .obj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Annots [4 0 R] >>")
+        .obj("<< /Type /Annot /Subtype /Widget /FT /Sig /T (s) /Rect [10 10 110 60] /P 3 0 R >>");
+    Document::open(Arc::new(pdf.build())).unwrap()
+}
+
+/// Signing adds a field only where the walk reads it back, the whole form with it: past a cap the
+/// new signature would be listed as unread fields, and its name could repeat an unread field's. A
+/// field the walk already reads is still signed in a form it can't read whole.
+#[test]
+fn a_new_signature_field_is_added_only_where_the_walk_reads_it_back() {
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/ec-p256.p12")).unwrap();
+    let id = crate::pkcs12::open(&p12, "test").unwrap();
+    let opts = SignOptions { date: "D:20261027120000Z".into(), ..SignOptions::default() };
+    // With `s` before them, the new field is the last one the walk takes.
+    let signed = sign(&form_with_text_fields(MAX_FIELDS - 2), &id, &opts).unwrap();
+    let (fields, whole) = walk_sig_fields(&Document::open(Arc::new(signed)).unwrap());
+    assert!(whole && fields.iter().any(|f| f.name == "Signature1"), "the new field is read back");
+    let refused = sign(&form_with_text_fields(MAX_FIELDS - 1), &id, &opts);
+    assert!(matches!(&refused, Err(SignError::Pdf(m)) if m.contains("too many fields")), "{:?}", refused.as_ref().err());
+    let existing = SignOptions { field: Some("s".into()), ..opts };
+    assert!(sign(&form_with_text_fields(MAX_FIELDS), &id, &existing).is_ok(), "a field the walk reads is signed as before");
+}
+
 /// Every kid's name repeats its parent's, so the names the walk keeps are capped all together: a
 /// long name over a few thousand kids stops the walk before it adds up.
 #[test]

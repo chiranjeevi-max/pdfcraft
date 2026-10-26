@@ -2372,6 +2372,14 @@ fn sign_inner(
                 // Inline (or new) AcroForms stay in the catalog.
                 None => doc.update_dict(root, |c| c.set(b"AcroForm".to_vec(), Object::Dict(af)))?,
             }
+            // The walk has to read the whole form, the new field included: past its caps the
+            // signature would be listed as unread fields, and its name could repeat an unread one.
+            if !walk_sig_fields(&doc).1 {
+                return Err(SignError::Pdf(
+                    "this form has too many fields, or a field name too long, for PdfCraft to read them all, so it can't add a signature field"
+                        .into(),
+                ));
+            }
             (wr, rect, turn)
         }
     };
