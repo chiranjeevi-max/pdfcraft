@@ -397,6 +397,8 @@ struct TextDevice {
     /// What the open `/ActualText` replacement paints besides glyphs (paths, images), as far as
     /// it can be seen: where its text reads when it marks no glyph (words drawn as outlines).
     painted: Option<Painted>,
+    /// Whether the open `/ActualText` replacement paints anything an exclusion leaves out.
+    paint_filtered: bool,
     /// The bounding boxes of the clip paths in force (view space), innermost last, each cut to the
     /// one before it: an outer bound on what can show.
     clips: Vec<Rect>,
@@ -570,6 +572,7 @@ impl TextDevice {
             depth: 0,
             actual: None,
             painted: None,
+            paint_filtered: false,
             clips: Vec::new(),
             replaced: Vec::new(),
             filter: TextFilter::default(),
@@ -592,6 +595,7 @@ impl TextDevice {
     fn end_actual_text(&mut self) {
         let Some((_, text, mut drawn)) = self.actual.take() else { return };
         let painted = self.painted.take();
+        let paint_filtered = std::mem::take(&mut self.paint_filtered);
         if std::mem::take(&mut self.actual_filtered) {
             // ActualText has no mapping from replacement words to individual glyphs. A mixed
             // span cannot be filtered honestly; a wholly excluded span can simply be omitted.
@@ -602,6 +606,11 @@ impl TextDevice {
             && !self.filter.painted
             && let Some(stand_in) = painted.and_then(Painted::glyph)
         {
+            // The paint places it, so paint left out mixes it as excluded glyphs would.
+            if paint_filtered {
+                self.partial_replacement = true;
+                return;
+            }
             drawn.push(stand_in);
         }
         let Some(glyph) = merge(&drawn, text.clone()) else {
@@ -619,8 +628,9 @@ impl TextDevice {
     }
 
     /// Record view-space box `b`, drawn with `transform`, as painted by the open `/ActualText`
-    /// replacement, cut to the visible area.
-    fn paint(&mut self, b: Rect, transform: Affine) {
+    /// replacement, cut to the visible area; paint an exclusion leaves out (`excluded`) only marks
+    /// the replacement.
+    fn paint(&mut self, b: Rect, transform: Affine, excluded: bool) {
         let seen = match self.clips.last() {
             Some(c) => {
                 let (x0, y0, x1, y1) = (b.x0.max(c.x0), b.y0.max(c.y0), b.x1.min(c.x1), b.y1.min(c.y1));
@@ -632,7 +642,11 @@ impl TextDevice {
             }
             None => b,
         };
-        self.painted.get_or_insert_with(|| Painted::new(transform)).add(seen);
+        if excluded {
+            self.paint_filtered = true;
+        } else {
+            self.painted.get_or_insert_with(|| Painted::new(transform)).add(seen);
+        }
     }
 
     /// Ends the page. Some producers draw text twice, the copy for an outline, shadow or
@@ -741,10 +755,9 @@ impl<'a> Device<'a> for TextDevice {
     fn draw_path(&mut self, path: &BezPath, transform: Affine, _: &Paint<'a>, _: &PathDrawMode) {
         // A path is no text, but it places an `/ActualText` replacement that marks no glyph.
         if self.actual.is_some()
-            && self.excluded_depth.is_none()
             && let Some(b) = control_box(path, transform)
         {
-            self.paint(b, transform);
+            self.paint(b, transform, self.excluded_depth.is_some());
         }
     }
     fn push_clip_path(&mut self, clip: &ClipPath) {
@@ -839,7 +852,7 @@ impl<'a> Device<'a> for TextDevice {
     fn draw_image(&mut self, image: Image<'a, '_>, transform: Affine) {
         // A picture of words, like an outline, places a replacement that marks no glyph; with
         // images excluded, it is not counted.
-        if self.actual.is_none() || self.excluded_depth.is_some() || self.filter.images {
+        if self.actual.is_none() {
             return;
         }
         // The transform places the picture's pixels, not a unit square.
@@ -847,7 +860,7 @@ impl<'a> Device<'a> for TextDevice {
         let corners = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].map(|(x, y)| transform * kurbo::Point::new(x, y));
         let [a, b, c, d] = corners;
         if corners.iter().all(|p| p.is_finite()) {
-            self.paint(Rect::from_points(a, c).union_pt(b).union_pt(d), transform);
+            self.paint(Rect::from_points(a, c).union_pt(b).union_pt(d), transform, self.excluded_depth.is_some() || self.filter.images);
         }
     }
     fn pop_clip_path(&mut self) {
@@ -2311,6 +2324,31 @@ mod tests {
         assert_eq!(filtered(0, figures.clone()), "");
         assert_eq!((filtered(1, TextFilter::default()), filtered(1, figures)), ("z".to_string(), String::new()));
         assert_eq!((filtered(2, TextFilter::default()), filtered(2, tables)), ("t".to_string(), String::new()));
+    }
+
+    #[test]
+    fn paint_split_by_an_exclusion_is_a_mixed_span_that_cant_be_counted() {
+        // Paint places a replacement that marks no glyph, so paint left out mixes it as excluded
+        // glyphs do: the words left out can't be told from the rest.
+        let picture = "q 60 0 0 20 100 40 cm BI /W 1 /H 1 /CS /G /BPC 8 ID A EI Q";
+        let (table, beside) = (
+            format!("/Span <</ActualText (t)>> BDC /Table BMC {picture} EMC 200 40 60 20 re f EMC"),
+            format!("/Span <</ActualText (p)>> BDC {picture} 200 40 60 20 re f EMC"),
+        );
+        let pdf = marked_pages(&[
+            "/Span <</ActualText (w)>> BDC /Figure BMC 100 40 60 20 re f EMC 200 40 60 20 re f EMC",
+            &table,
+            &beside,
+            // Glyphs place this one, and the paint beside them is not its words.
+            "/Span <</ActualText (g)>> BDC BT /F1 20 Tf 1 0 0 1 100 150 Tm (y) Tj ET /Figure BMC 100 40 60 20 re f EMC EMC",
+        ]);
+        let filtered = |page, filter| extract_page_filtered(&pdf, page, &InterpreterSettings::default(), filter).map(|t| t.plain_text());
+        let (figures, tables) = (TextFilter { images: true, ..Default::default() }, TextFilter { tables: true, ..Default::default() });
+        for (page, text, filter) in [(0, "w", figures.clone()), (1, "t", tables), (2, "p", figures.clone())] {
+            assert_eq!(filtered(page, TextFilter::default()), Ok(text.to_string()));
+            assert!(filtered(page, filter).is_err(), "page {page}");
+        }
+        assert_eq!(filtered(3, figures), Ok("g".to_string()));
     }
 
     #[test]
